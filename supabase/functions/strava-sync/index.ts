@@ -116,6 +116,7 @@ Deno.serve(async (req) => {
         best_efforts: activity.best_efforts || [],
         map: activity.map,
         streams,
+        fetched_at: new Date().toISOString(),
       };
 
       const { error } = await admin.from("runs").update({
