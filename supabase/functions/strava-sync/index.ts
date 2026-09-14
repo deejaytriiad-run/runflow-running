@@ -102,7 +102,11 @@ Deno.serve(async (req) => {
       if (!activities.length) break;
 
       const runs = activities
-        .filter((a: any) => ["Run", "TrailRun", "VirtualRun"].includes(a.sport_type || a.type))
+        .filter((a: any) =>
+          ["Run", "TrailRun", "VirtualRun"].includes(a.sport_type || a.type) &&
+          Number(a.distance) > 0 &&
+          Number(a.moving_time) > 0
+        )
         .map((a: any) => ({
           user_id: user.id,
           name: a.name || "Course Strava",
