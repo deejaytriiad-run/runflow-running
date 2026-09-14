@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       });
       if (error) throw error;
-    } else if (!["sync", "detail"].includes(action)) {
+    } else if (!["sync", "detail", "records"].includes(action)) {
       return json({ error: "Action inconnue" }, 400);
     }
 
@@ -88,6 +88,42 @@ Deno.serve(async (req) => {
         expires_at: expiresAt,
         updated_at: new Date().toISOString(),
       }).eq("user_id", user.id);
+    }
+
+    if (action === "records") {
+      const { data: history, error: historyError } = await admin
+        .from("runs").select("external_id,details").eq("user_id", user.id)
+        .eq("source", "Strava").order("run_date", { ascending: false }).limit(1000);
+      if (historyError) throw historyError;
+      const pending = (history || []).filter((r: any) =>
+        /^\d+$/.test(String(r.external_id)) && !r.details?.records_fetched_at
+      );
+      const batch = pending.slice(0, 40);
+      let processed = 0;
+      for (const row of batch) {
+        const activityRes = await fetch(
+          `https://www.strava.com/api/v3/activities/${row.external_id}?include_all_efforts=true`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        if (activityRes.status === 429) break;
+        if (!activityRes.ok) continue;
+        const activity = await activityRes.json();
+        const details = {
+          ...(row.details || {}),
+          best_efforts: activity.best_efforts || [],
+          records_fetched_at: new Date().toISOString(),
+        };
+        const { error } = await admin.from("runs").update({ details })
+          .eq("user_id", user.id).eq("source", "Strava")
+          .eq("external_id", String(row.external_id));
+        if (!error) processed++;
+      }
+      return json({
+        success: true,
+        processed,
+        remaining: Math.max(0, pending.length - processed),
+        complete: pending.length <= processed,
+      });
     }
 
     if (action === "detail") {
