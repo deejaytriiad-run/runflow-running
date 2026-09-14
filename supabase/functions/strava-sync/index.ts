@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       });
       if (error) throw error;
-    } else if (action !== "sync") {
+    } else if (!["sync", "detail"].includes(action)) {
       return json({ error: "Action inconnue" }, 400);
     }
 
@@ -90,6 +90,52 @@ Deno.serve(async (req) => {
       }).eq("user_id", user.id);
     }
 
+    if (action === "detail") {
+      const activityId = String(body.activityId || "");
+      if (!/^\d+$/.test(activityId)) return json({ error: "Identifiant Strava invalide" }, 400);
+
+      const activityRes = await fetch(
+        `https://www.strava.com/api/v3/activities/${activityId}?include_all_efforts=true`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      if (!activityRes.ok) return json({ error: "Détail de la séance indisponible" }, activityRes.status);
+      const activity = await activityRes.json();
+
+      const streamRes = await fetch(
+        `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=time,distance,altitude,velocity_smooth,heartrate,cadence,latlng&key_by_type=true`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const streams = streamRes.ok ? await streamRes.json() : {};
+
+      const detailData = {
+        description: activity.description,
+        workout_type: activity.workout_type,
+        gear: activity.gear,
+        laps: activity.laps || [],
+        splits_metric: activity.splits_metric || [],
+        best_efforts: activity.best_efforts || [],
+        map: activity.map,
+        streams,
+      };
+
+      const { error } = await admin.from("runs").update({
+        elapsed_minutes: Math.max(1, Math.round(activity.elapsed_time / 60)),
+        elevation_gain: activity.total_elevation_gain || 0,
+        average_heartrate: activity.average_heartrate || null,
+        max_heartrate: activity.max_heartrate || null,
+        average_cadence: activity.average_cadence || null,
+        average_speed: activity.average_speed || null,
+        max_speed: activity.max_speed || null,
+        calories: activity.calories || null,
+        suffer_score: activity.suffer_score || null,
+        sport_type: activity.sport_type || activity.type,
+        device_name: activity.device_name || null,
+        details: detailData,
+      }).eq("user_id", user.id).eq("external_id", activityId);
+      if (error) throw error;
+      return json({ success: true, activity: detailData });
+    }
+
     let page = 1;
     let imported = 0;
     while (page <= 100) {
@@ -116,6 +162,15 @@ Deno.serve(async (req) => {
           notes: "",
           source: "Strava",
           external_id: String(a.id),
+          elapsed_minutes: Math.max(1, Math.round(a.elapsed_time / 60)),
+          elevation_gain: a.total_elevation_gain || 0,
+          average_heartrate: a.average_heartrate || null,
+          max_heartrate: a.max_heartrate || null,
+          average_cadence: a.average_cadence || null,
+          average_speed: a.average_speed || null,
+          max_speed: a.max_speed || null,
+          suffer_score: a.suffer_score || null,
+          sport_type: a.sport_type || a.type,
         }));
 
       if (runs.length) {
