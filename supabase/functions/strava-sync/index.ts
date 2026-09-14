@@ -126,6 +126,12 @@ Deno.serve(async (req) => {
 
     return json({ success: true, imported });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Erreur inconnue" }, 500);
+    console.error("strava-sync failure", error);
+    const detail =
+      error instanceof Error ? error.message :
+      typeof error === "object" && error !== null
+        ? [error.message, error.details, error.hint, error.code].filter(Boolean).join(" · ")
+        : String(error);
+    return json({ error: detail || "Erreur serveur sans détail" }, 500);
   }
 });
